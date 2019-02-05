@@ -1,0 +1,238 @@
+---
+title: "Project"
+output: html_document
+---
+We have train (8523) and test (5681) data set, train data set has both input and output variable(s). You need to predict the sales for test data set.
+
+Variable:Description
+
+Item_Identifier:Unique product ID
+
+Item_Weight:Weight of product
+
+Item_Fat_Content:Whether the product is low fat or not
+
+Item_Visibility:The % of total display area of all products in a store allocated to the particular product
+
+Item_Type:The category to which the product belongs
+
+Item_MRP:Maximum Retail Price (list price) of the product
+
+Outlet_Identifier:Unique store ID
+
+Outlet_Establishment_Year:The year in which store was established
+
+Outlet_Size:The size of the store in terms of ground area covered
+
+Outlet_Location_Type:The type of city in which the store is located
+
+Outlet_Type:Whether the outlet is just a grocery store or some sort of supermarket
+
+Item_Outlet_Sales:Sales of the product in the particulat store. This is the outcome variable to be predicted.
+
+#1.Data read
+
+The following code will read the csv file into dataframe.
+```{r}
+train=read.csv("C:\\Users\\abc\\Desktop\\R Markdown\\Train_UWu5bXk.csv",stringsAsFactors = F,na.strings=c("","NA"))
+test=read.csv("C:\\Users\\abc\\Desktop\\R Markdown\\Test_u94Q5KV.csv",stringsAsFactors = F,na.strings=c("","NA"))
+
+```
+To avoid problems delay re-encoding of strings by using stringsAsFactors = FALSE when creating data.frames.
+
+2.Data Clining(missing value,info,describe)
+```{r}
+colSums(is.na(train))
+```
+
+From above function, We calculate how many NA values are present in each column.
+Here we found Na values in column "Item_Weight" & "Outlet_Size".
+```{r}
+colSums(is.na(test))
+```
+Aslo in test dataset we found Na values in column "Item_Weight" & "Outlet_Size".
+
+
+```{r}
+library(naniar)
+
+vis_miss(train)
+vis_miss(test)
+
+```
+"naniar" is a package to make it easier to summarise and handle missing values in R.
+
+#Data Cleaning_train dataset (Na value imputation)
+
+```{r}
+library(tidyverse)
+
+df1 <- train %>% # Here we can easily calculate mean by grouping through tidyverse package.
+  group_by(Item_Type ) %>% #Here mean is calculate by Item Type
+summarise(avg_item = mean(Item_Weight,na.rm = T))
+```
+
+
+```{r}
+train<- inner_join(train,df1,by="Item_Type")
+train$Item_Weight <-ifelse(is.na(train$Item_Weight==T),train$avg_item,train$Item_Weight)#ifelse fuction is used for mean imputation.
+train <- train[,-13]
+```
+
+To replace na values we check the dependency by chi-square test 
+```{r}
+table(train$Outlet_Size,useNA = "ifany")
+chisq.test(train$Outlet_Size,train$Item_Fat_Content)
+chisq.test(train$Outlet_Size,train$Item_Type)
+chisq.test(train$Outlet_Size,train$Outlet_Identifier)
+chisq.test(train$Outlet_Size,train$Outlet_Location_Type)
+chisq.test(train$Outlet_Size,train$Outlet_Type)
+```
+Conclusion:Here we found Outlet_Location_Type & Outlet_Type  p-value is <0.05.Hence they are dependent on Outlet_Size.
+So create a separate dataframe and sort a data of with na values and without na values for model building.
+```{r}
+
+df <- data.frame(Record_ID=seq(1,nrow(train)),
+                Outlet_Size=train$Outlet_Size,
+                 Outlet_Location_Type=train$Outlet_Location_Type,
+                 Outlet_Type=train$Outlet_Type)
+
+dfnonNA <- df %>% filter(is.na(Outlet_Size)==F)#here we consider as training dataset
+dfNA <- df%>% filter(is.na(Outlet_Size)==T)#and validation dataset
+
+library(e1071)
+
+model.nb <- naiveBayes(Outlet_Size~.,data=dfnonNA[,-1])
+pred.nb <- predict(model.nb,newdata = dfNA[,-1])
+dfNA$Outlet_Size <- pred.nb
+
+#As we know its categorical data so we apply Naivebayes alogrithm from that we get values which we can replace in place of na values.
+
+NewDF <- rbind(dfnonNA,dfNA) %>% arrange(Record_ID) #Here we need to maintain the sequence of original data.
+train$Outlet_Size <- NewDF$Outlet_Size
+
+```
+
+Same Process we will do for test dataset.
+
+#Data Cleaning_test dataset (Na value imputation)
+```{r}
+df2 <- test %>% 
+  group_by(Item_Type ) %>% 
+  summarise(avg_item = mean(Item_Weight,na.rm = T))
+
+#### replacing in weight
+test<- inner_join(test,df2,by="Item_Type")
+test$Item_Weight <-ifelse(is.na(test$Item_Weight==T),test$avg_item,test$Item_Weight)
+test <- test[,-12]
+###   now inoutlet sizedf
+chisq.test(test$Outlet_Size,test$Item_Fat_Content)
+chisq.test(test$Outlet_Size,test$Item_Type)
+chisq.test(test$Outlet_Size,test$Outlet_Identifier)
+chisq.test(test$Outlet_Size,test$Outlet_Location_Type)
+chisq.test(test$Outlet_Size,test$Outlet_Type)
+
+```
+
+```{r}
+### replacement
+df3 <- data.frame(Record_ID=seq(1,nrow(test)),
+                 Outlet_Size=test$Outlet_Size,
+                 Outlet_Location_Type=test$Outlet_Location_Type,
+                 Outlet_Type=test$Outlet_Type)
+
+dfnonNA3 <- df3 %>% filter(is.na(Outlet_Size)==F)
+dfNA3 <- df3%>% filter(is.na(Outlet_Size)==T)
+
+library(e1071)
+model.nb_3 <- naiveBayes(Outlet_Size~.,data=dfnonNA3[,-1])
+pred.nb_3<- predict(model.nb_3,newdata = dfNA3[,-1])
+dfNA3$Outlet_Size <- pred.nb_3
+
+NewDF <- rbind(dfnonNA3,dfNA3) %>% arrange(Record_ID) #Here we need to maintain the sequence of original data.
+test$Outlet_Size <- NewDF$Outlet_Size
+```
+
+#Visualization
+
+```{r}
+library(ggplot2)
+qplot(Item_MRP,Item_Outlet_Sales,data=train,color=Outlet_Type)
+```
+As above we clearly see that Sales of Supermarket type 1 has more than the other.However, it is interesting to see the gaps in the prices around 60,130 and 200. There could be many reason for why there are gaps in the prices, it could be because prices for different categories differ and which led to the gaps.
+
+
+```{r}
+qplot(Item_Visibility,Item_Outlet_Sales,data=train,color=Outlet_Type)
+```
+In above graph we see the grocery store does have a uniform distribution even for items which have higher visibility. Even for Supermarket Type 3 some of Items with high sales have lower visibility compared to other items.
+
+#Model Building 
+```{r}
+#Before model Building we need to convert the categorical variable into factor form for both the datasets.
+test$Item_Identifier <- as.factor(test$Item_Identifier)
+test$Item_Fat_Content <- as.factor(test$Item_Fat_Content)
+test$Item_Type <- as.factor(test$Item_Type)
+test$Outlet_Identifier <- as.factor(test$Outlet_Identifier)
+test$Outlet_Size <- as.factor(test$Outlet_Size)
+test$Outlet_Location_Type <- as.factor(test$Outlet_Location_Type)
+test$Outlet_Type <- as.factor(test$Outlet_Type)
+
+train$Item_Identifier <- as.factor(train$Item_Identifier)
+train$Item_Fat_Content <- as.factor(train$Item_Fat_Content)
+train$Item_Type <- as.factor(train$Item_Type)
+train$Outlet_Identifier <- as.factor(train$Outlet_Identifier)
+train$Outlet_Size <- as.factor(train$Outlet_Size)
+train$Outlet_Location_Type <- as.factor(train$Outlet_Location_Type)
+train$Outlet_Type <- as.factor(train$Outlet_Type)
+
+
+library(rpart)
+fitRegTree <- rpart(Item_Outlet_Sales~. , data = train[,-c(1,7)], method = "anova")
+pred.RegTree <- predict(fitRegTree, newdata = test[,-c(1,7)])
+
+predDF <-as.data.frame(pred.RegTree)
+
+t<-data.frame(Item_Identifier=test$Item_Identifier,
+              Outlet_Identifier=test$Outlet_Identifier,Item_Outlet_Sales=predDF)
+
+write.csv(t,"C:\\Users\\abc\\Desktop\\R Markdown\\samplesubmission_rpart.csv",row.names = F)
+
+
+```
+
+```{r}
+
+library(randomForest)
+fit.rm <- randomForest(Item_Outlet_Sales~.,data = train[,-c(1,7)])
+pred.rf <- predict(fit.rm , newdata = test[,-c(1,7)])
+
+submitRF <-as.data.frame(pred.rf)
+t<-data.frame(Item_Identifier=test$Item_Identifier,
+              Outlet_Identifier=test$Outlet_Identifier,Item_Outlet_Sales=submitRF)
+write.csv(t,"C:\\Users\\abc\\Desktop\\R Markdown\\samplesubmission_rf.csv",row.names = F)
+
+```
+
+```{r}
+library(h2o)
+h2o.init(nthreads=4)
+
+
+train.hex <- as.h2o(train[,-c(1,7)])
+valid.hex <- as.h2o(test[,-c(1,7)])
+
+model <- h2o.automl(x=1:9,y=10,
+                    training_frame = train.hex)
+pred.RF <- h2o.predict(model,newdata = valid.hex)
+pred.DF <-as.data.frame(pred.RF)
+
+
+
+v=as.data.frame(pred.DF)
+r<-data.frame(Item_Identifier=test$Item_Identifier,
+              Outlet_Identifier=test$Outlet_Identifier,Item_Outlet_Sales=v)
+write.csv(r,"C:\\Users\\abc\\Desktop\\R Markdown\\samplesubmission_automl.csv",row.names = F)
+
+```
+
